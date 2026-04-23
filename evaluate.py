@@ -16,21 +16,30 @@ def get_git_revision_hash():
 
 
 def main():
-    # 1. Load ground truth (test labels)
-    gt = pd.read_csv("data/test.csv")  # must contain 'target'
+    # 1. Load ground truth (must contain 'target')
+    gt_path = "data/test.csv"
+    if not os.path.exists(gt_path):
+        raise Exception("data/test.csv not found")
+
+    gt = pd.read_csv(gt_path)
 
     if "target" not in gt.columns:
         raise Exception("test.csv must contain 'target' column")
 
     # 2. Get latest submission file
     submission_folder = "submissions"
+    if not os.path.exists(submission_folder):
+        raise Exception("submissions folder not found")
+
     files = [f for f in os.listdir(submission_folder) if f.endswith(".csv")]
 
     if not files:
-        raise Exception("No submission file found")
+        raise Exception("No submission file found in submissions/")
 
     latest_file = sorted(files)[-1]
     sub_path = os.path.join(submission_folder, latest_file)
+
+    print(f"Evaluating file: {sub_path}")
 
     sub = pd.read_csv(sub_path)
 
@@ -42,24 +51,24 @@ def main():
         raise Exception("Row count mismatch between submission and test data")
 
     # 4. Calculate accuracy
-    accuracy = (sub["prediction"].astype(int) == gt["target"].astype(int)).mean()
+    accuracy = (
+        sub["prediction"].astype(int) == gt["target"].astype(int)
+    ).mean()
 
     # 5. Metadata
-    username = os.getenv("GITHUB_ACTOR")
+    username = os.getenv("GITHUB_ACTOR") or "unknown"
     commit_hash = get_git_revision_hash()
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
     # 6. Update leaderboard
     leaderboard_file = "leaderboard.csv"
 
-    new_entry = pd.DataFrame(
-        [{
-            "username": username,
-            "accuracy": round(accuracy, 4),
-            "commit_hash": commit_hash,
-            "timestamp": timestamp
-        }]
-    )
+    new_entry = pd.DataFrame([{
+        "username": username,
+        "accuracy": round(accuracy, 4),
+        "commit_hash": commit_hash,
+        "timestamp": timestamp
+    }])
 
     if os.path.exists(leaderboard_file):
         leaderboard = pd.read_csv(leaderboard_file)
@@ -67,10 +76,13 @@ def main():
     else:
         leaderboard = new_entry
 
+    # Sort by accuracy (highest first)
     leaderboard = leaderboard.sort_values(by="accuracy", ascending=False)
+
     leaderboard.to_csv(leaderboard_file, index=False)
 
     print(f"{username} | Accuracy: {accuracy:.4f}")
+    print("Leaderboard updated successfully.")
 
 
 if __name__ == "__main__":
