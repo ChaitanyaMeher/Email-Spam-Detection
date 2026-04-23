@@ -31,7 +31,10 @@ def main():
     if not os.path.exists(submission_folder):
         raise Exception("submissions folder not found")
 
-    files = [f for f in os.listdir(submission_folder) if f.endswith(".csv")]
+    files = files = [
+    f for f in os.listdir(submission_folder)
+    if f.endswith(".csv") and "sample" not in f.lower()
+    ]
 
     if not files:
         raise Exception("No submission file found in submissions/")
