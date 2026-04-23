@@ -6,89 +6,36 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   evaluate:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout PR branch
+      - name: Checkout PR code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
 
-      - name: Set up Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install pandas
 
       - name: Run evaluation
-        id: run_eval
-        run: |
-          python evaluate.py 2>&1 | tee eval_output.txt
-          echo "output<<EOF" >> $GITHUB_OUTPUT
-          cat eval_output.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+        run: python evaluate.py
 
-      - name: Checkout main branch to update leaderboard
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          path: main-branch
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Copy updated leaderboard to main branch checkout
-        run: |
-          if [ -f leaderboard.csv ]; then
-            cp leaderboard.csv main-branch/leaderboard.csv
-          fi
-
-      - name: Commit leaderboard to main
-        working-directory: main-branch
+      - name: Commit updated leaderboard
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet leaderboard.csv 2>/dev/null || [ ! -f leaderboard.csv ]; then
-            echo "No leaderboard changes to commit."
+
+          git add leaderboard.csv
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
           else
-            git add leaderboard.csv
-            git commit -m "chore: update leaderboard from PR #${{ github.event.pull_request.number }} [skip ci]"
-            git push origin main
+            git commit -m "Update leaderboard from PR #${{ github.event.number }}"
+            git push origin HEAD:main
           fi
-
-      - name: Comment on PR with result
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `${{ steps.run_eval.outputs.output }}`;
-            const body = [
-              '## 🏆 Evaluation Results',
-              '',
-              '```',
-              output,
-              '```',
-              '',
-              `**PR:** #${{ github.event.pull_request.number }} — \`${{ github.event.pull_request.head.sha }}\``,
-              '',
-              '_Leaderboard has been updated on the \`main\` branch._',
-            ].join('\n');
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body,
-            });
