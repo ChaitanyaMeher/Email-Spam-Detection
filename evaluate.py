@@ -1,34 +1,10 @@
-# real evaluation
 import os
-import subprocess
-from datetime import datetime
-
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import StandardScaler
+from datetime import datetime
+import subprocess
 
 
-FEATURES = [
-    "num_words",
-    "num_characters",
-    "num_exclamation_marks",
-    "num_links",
-    "has_suspicious_link",
-    "num_attachments",
-    "has_attachment",
-    "sender_reputation_score",
-    "email_hour",
-    "email_day_of_week",
-    "is_weekend",
-    "num_recipients",
-    "contains_money_terms",
-    "contains_urgency_terms",
-]
-TARGET = "target"
-
-
-def get_git_revision_hash() -> str:
+def get_git_revision_hash():
     try:
         return (
             subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
@@ -40,62 +16,49 @@ def get_git_revision_hash() -> str:
 
 
 def main():
-    # 1. Load datasets
-    train_path = "data/train.csv"
-    test_path = "data/test.csv"
+    # 1. Load ground truth (test labels)
+    gt = pd.read_csv("data/test.csv")  # must contain 'target'
 
-    print(f"Loading training data from '{train_path}'...")
-    df_train = pd.read_csv(train_path)
+    if "target" not in gt.columns:
+        raise Exception("test.csv must contain 'target' column")
 
-    print(f"Loading test data from '{test_path}'...")
-    df_test = pd.read_csv(test_path)
+    # 2. Get latest submission file
+    submission_folder = "submissions"
+    files = [f for f in os.listdir(submission_folder) if f.endswith(".csv")]
 
-    # Validate that target column has actual labels
-    if df_train[TARGET].isnull().all() or df_test[TARGET].isnull().all():
-        raise ValueError(
-            "The 'target' column is entirely NaN in your CSV files.\n"
-            "Please re-run the notebook's save cell using the fixed version:\n\n"
-            "  train_df = X_train.copy().reset_index(drop=True)\n"
-            "  train_df['target'] = y_train.reset_index(drop=True)\n"
-            "  test_df = X_test.copy().reset_index(drop=True)\n"
-            "  test_df['target'] = y_test.reset_index(drop=True)\n"
-            "  train_df.to_csv('data/train.csv', index=False)\n"
-            "  test_df.to_csv('data/test.csv', index=False)\n"
-        )
+    if not files:
+        raise Exception("No submission file found")
 
-    # 2. Prepare features and labels
-    df_train = df_train.reset_index(drop=True).dropna(subset=[TARGET])
-    df_test = df_test.reset_index(drop=True).dropna(subset=[TARGET])
+    latest_file = sorted(files)[-1]
+    sub_path = os.path.join(submission_folder, latest_file)
 
-    X_train = df_train[FEATURES]
-    y_train = df_train[TARGET].astype(int)
+    sub = pd.read_csv(sub_path)
 
-    X_test = df_test[FEATURES]
-    y_test = df_test[TARGET].astype(int)
+    # 3. Validate submission format
+    if "prediction" not in sub.columns:
+        raise Exception("Submission must contain 'prediction' column")
 
-    print(f"Train samples: {len(X_train):,} | Test samples: {len(X_test):,}")
+    if len(sub) != len(gt):
+        raise Exception("Row count mismatch between submission and test data")
 
-    # 3. Scale features
-    scaler = StandardScaler()
-    X_train_sc = scaler.fit_transform(X_train)
-    X_test_sc = scaler.transform(X_test)
+    # 4. Calculate accuracy
+    accuracy = (sub["prediction"].astype(int) == gt["target"].astype(int)).mean()
 
-    # 4. Train model
-    print("Training Gradient Boosting model...")
-    model = GradientBoostingClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train_sc, y_train)
-
-    # 5. Evaluate
-    predictions = model.predict(X_test_sc)
-    accuracy = accuracy_score(y_test, predictions)
+    # 5. Metadata
+    username = os.getenv("GITHUB_ACTOR")
+    commit_hash = get_git_revision_hash()
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
     # 6. Update leaderboard
     leaderboard_file = "leaderboard.csv"
-    commit_hash = get_git_revision_hash()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     new_entry = pd.DataFrame(
-        [{"timestamp": timestamp, "commit_hash": commit_hash, "accuracy": accuracy}]
+        [{
+            "username": username,
+            "accuracy": round(accuracy, 4),
+            "commit_hash": commit_hash,
+            "timestamp": timestamp
+        }]
     )
 
     if os.path.exists(leaderboard_file):
@@ -107,9 +70,7 @@ def main():
     leaderboard = leaderboard.sort_values(by="accuracy", ascending=False)
     leaderboard.to_csv(leaderboard_file, index=False)
 
-    print(
-        f"Evaluated commit {commit_hash}. Accuracy: {accuracy:.4f}. Leaderboard updated."
-    )
+    print(f"{username} | Accuracy: {accuracy:.4f}")
 
 
 if __name__ == "__main__":
